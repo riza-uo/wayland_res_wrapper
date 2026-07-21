@@ -15,7 +15,7 @@ class Mode:
     hz: int = field(init=False)
 
     def __post_init__(self):
-        self.x, self.y, self.hz = re.split("x|@", self.name)
+        self.x, self.y, self.hz = [int(prop) for prop in re.split("x|@", self.name)]
 
 
 @dataclass
@@ -90,6 +90,9 @@ def main():
 
     # Check that the target res is in the available modes for the primary monitor
     if target_res.name not in monitors[1].valid_modes:
+        print(f"ERROR - Target resolution ({target_res.name}) not found. Try one of the following:")
+        for vm in monitors[1].valid_modes:
+            print(vm)
         return
 
     # Set primary monitor to desired game resolution
@@ -107,7 +110,7 @@ def main():
     # Run game
     subprocess.run(game_commands)
 
-    # Reset state
+    # Reset original state
     for id, m in monitors.items():
         change_monitor_res(monitor_id=id, mode=m.curr_mode)
         change_monitor_pos(monitor_id=id, pos=m.pos)
