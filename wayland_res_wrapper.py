@@ -7,6 +7,9 @@ import subprocess
 import sys
 
 
+_PORTRAIT_ROTATION = (2, 8)
+
+
 @dataclass
 class Mode:
     name: str
@@ -15,7 +18,7 @@ class Mode:
     hz: int = field(init=False)
 
     def __post_init__(self):
-        self.x, self.y, self.hz = [int(prop) for prop in re.split("x|@", self.name)]
+        self.x, self.y, self.hz = re.split("x|@", self.name)
 
 
 @dataclass
@@ -32,7 +35,8 @@ class Monitor:
     id: int
     curr_mode_id: int
     modes: dict
-    pos: Position
+    position: Position
+    portrait: bool
 
     @property
     def curr_mode(self) -> str:
@@ -42,8 +46,16 @@ class Monitor:
     def valid_modes(self) -> list:
         return [m.name for m in self.modes.values()]
 
+    @property
+    def width(self) -> int:
+        return self.curr_mode.y if self.portrait else self.curr_mode.x
 
-def fetch_monitors() -> list:
+    @property
+    def height(self) -> int:
+        return self.curr_mode.x if self.portrait else self.curr_mode.y
+
+
+def fetch_monitors() -> dict:
     """
     Fetch current monitor information from kscreen-doctor
     """
@@ -54,23 +66,26 @@ def fetch_monitors() -> list:
 
     for o in ks_json["outputs"]:
         monitors[o["id"]] = Monitor(
-            o["id"], 
+            o["id"],
             o["currentModeId"],
-            dict((m["id"], Mode(m["name"])) for m in o["modes"]), 
-            Position(o["pos"]["x"], o["pos"]["y"]), 
+            dict((m["id"], Mode(m["name"])) for m in o["modes"]),
+            Position(o["pos"]["x"], o["pos"]["y"]),
+            o["rotation"] in _PORTRAIT_ROTATION
         )
 
     return monitors
 
 
-def change_monitor_res(monitor_id=1, mode=None):
+def change_monitor_res(monitor_id, mode=None) -> None:
     if not mode:
+        print("ERROR - mode not provided")
         return
     subprocess.run(["kscreen-doctor", f"output.{monitor_id}.mode.{mode.name}"])
 
 
-def change_monitor_pos(monitor_id=1, pos=None):
+def change_monitor_pos(monitor_id, pos=None) -> None:
     if not pos:
+        print("ERROR - position not provided")
         return
     subprocess.run(["kscreen-doctor", f"output.{monitor_id}.position.{pos.x},{pos.y}"])
 
@@ -96,13 +111,14 @@ def main():
         return
 
     # Set primary monitor to desired game resolution
-    change_monitor_res(monitor_id=1, mode=target_res)       
+    change_monitor_res(monitor_id=1, mode=target_res)
 
     # Set right-most monitor position to ensure no gaps
     change_monitor_pos(
-        monitor_id=2, 
+        monitor_id=2,
         pos=Position(
-            x=monitors[1].curr_mode.x + monitors[3].curr_mode.x,
+            # Offset right-most monitor by the new width of the Left-most and center monitors
+            x=int(target_res.x) + int(monitors[3].width),
             y=0
         )
     )
@@ -113,7 +129,7 @@ def main():
     # Reset original state
     for id, m in monitors.items():
         change_monitor_res(monitor_id=id, mode=m.curr_mode)
-        change_monitor_pos(monitor_id=id, pos=m.pos)
+        change_monitor_pos(monitor_id=id, pos=m.position)
 
 
 if __name__ == "__main__":
