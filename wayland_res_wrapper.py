@@ -7,8 +7,11 @@ import subprocess
 import sys
 
 
-_PORTRAIT_ROTATION = (2, 8)
-
+_MONITOR_NAMES = (
+    "DP-1",
+    "DP-2",
+    "HDMI-A-1"
+)
 
 @dataclass
 class Mode:
@@ -33,26 +36,19 @@ class Monitor:
     Helper class to clean up accessing monitor properties
     """
     id: int
-    curr_mode_id: int
+    mode_id: int
     modes: dict
     position: Position
-    portrait: bool
+    width: int
+    height: int
 
     @property
     def curr_mode(self) -> str:
-        return self.modes[self.curr_mode_id]
+        return self.modes[self.mode_id]
     
     @property
     def valid_modes(self) -> list:
         return [m.name for m in self.modes.values()]
-
-    @property
-    def width(self) -> int:
-        return self.curr_mode.y if self.portrait else self.curr_mode.x
-
-    @property
-    def height(self) -> int:
-        return self.curr_mode.x if self.portrait else self.curr_mode.y
 
 
 def fetch_monitors() -> dict:
@@ -65,12 +61,17 @@ def fetch_monitors() -> dict:
     ks_json = json.loads(ks_res.stdout)
 
     for o in ks_json["outputs"]:
-        monitors[o["id"]] = Monitor(
-            o["id"],
-            o["currentModeId"],
-            dict((m["id"], Mode(m["name"])) for m in o["modes"]),
-            Position(o["pos"]["x"], o["pos"]["y"]),
-            o["rotation"] in _PORTRAIT_ROTATION
+        if o["name"] not in _MONITOR_NAMES:
+            print("ERROR - Monitor names have changed, investigate....")
+            return
+
+        monitors[o["name"]] = Monitor(
+            id=o["id"],
+            mode_id=o["currentModeId"],
+            modes=dict((m["id"], Mode(m["name"])) for m in o["modes"]),
+            position=Position(o["pos"]["x"], o["pos"]["y"]),
+            width=o["size"]["width"],
+            height=o["size"]["height"],
         )
 
     return monitors
@@ -104,21 +105,21 @@ def main():
     game_commands = sys.argv[2:]
 
     # Check that the target res is in the available modes for the primary monitor
-    if target_res.name not in monitors[1].valid_modes:
+    if target_res.name not in monitors["DP-1"].valid_modes:
         print(f"ERROR - Target resolution ({target_res.name}) not found. Try one of the following:")
-        for vm in monitors[1].valid_modes:
+        for vm in monitors["DP-1"].valid_modes:
             print(vm)
         return
 
     # Set primary monitor to desired game resolution
-    change_monitor_res(monitor_id=1, mode=target_res)
+    change_monitor_res(monitor_id=monitors["DP-1"].id, mode=target_res)
 
     # Set right-most monitor position to ensure no gaps
     change_monitor_pos(
-        monitor_id=2,
+        monitor_id=monitors["HDMI-A-1"].id,
         pos=Position(
             # Offset right-most monitor by the new width of the Left-most and center monitors
-            x=int(target_res.x) + int(monitors[3].width),
+            x=int(monitors["DP-2"].width) + int(target_res.x),
             y=0
         )
     )
@@ -127,9 +128,9 @@ def main():
     subprocess.run(game_commands)
 
     # Reset original state
-    for id, m in monitors.items():
-        change_monitor_res(monitor_id=id, mode=m.curr_mode)
-        change_monitor_pos(monitor_id=id, pos=m.position)
+    for m in monitors.values():
+        change_monitor_res(monitor_id=m.id, mode=m.curr_mode)
+        change_monitor_pos(monitor_id=m.id, pos=m.position)
 
 
 if __name__ == "__main__":
